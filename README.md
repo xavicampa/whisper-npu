@@ -13,9 +13,15 @@ overlay) lives in the [dotfiles](https://github.com/xavicampa/dotfiles) under
 
 ```
 GET  /                        -> status json (llama-swap preload hits this)
-GET  /health                  -> 200 once the pipeline is loaded (checkEndpoint)
-POST /v1/audio/transcriptions -> {"text": "..."}
+GET  /health                  -> 200 once the pipeline is loaded, else 503 (checkEndpoint)
+POST /v1/audio/transcriptions -> {"text": "..."}; 400 bad audio/response_format,
+                                 503 while the model isn't loaded
+anything else                 -> 404
 ```
+
+Model load failure is not fatal: whisperd logs it, keeps serving, `/health`
+stays 503 and POSTs answer 503 — and the process still exits 0 on shutdown.
+llama-swap sees the failed healthcheck; the process reports success.
 
 - Audio: **PCM16 mono 16 kHz wav** only (the client's format; anything else is
   a 400 — no decoder in a stdlib-only server).
@@ -31,6 +37,7 @@ POST /v1/audio/transcriptions -> {"text": "..."}
 | `DICTATE_MODEL` | HF id of the OpenVINO whisper export | `OpenVINO/whisper-medium-int8-ov` |
 | `DICTATE_CACHE_DIR` | NPU compile-cache root (`$DIR/npu-cache`) | `~/.cache/dictation` (`/data/cache` in the image) |
 | `DICTATE_TASK` / `DICTATE_LANGUAGE` | default task/language | empty (model default / auto) |
+| `PORT` | fallback for `--port` (CLI flag wins; llama-swap always passes `--port`) | 5899 standalone, 5812 in the image CMD |
 
 The `DICTATE_*` names are shared with the `dictate` client (the env + on-disk
 cache contract predates the split; the caches are deliberately common so host
@@ -40,8 +47,9 @@ and container keep each other warm).
 
 `ghcr.io/xavicampa/whisper-npu:<openvino-base-version>` (e.g. `:2026.4.1`) +
 `:latest`, built by [.github/workflows/docker.yml](.github/workflows/docker.yml)
-on tag push (the tag is the trigger; the image version comes from the
-Containerfile's `FROM openvino/ubuntu24_runtime:<ver>` line).
+on a `v*` tag push (the tag is just the trigger — any tag matching `v*` works;
+the image version comes from the Containerfile's
+`FROM openvino/ubuntu24_runtime:<ver>` line) or manually via workflow_dispatch.
 
 The base image is not incidental: it carries the OpenVINO runtime + NPU plugin
 + level-zero NPU compiler. The NPU compile cache (`npu-cache`) keys on the
@@ -63,9 +71,11 @@ podman run --replace --init --name ${MODEL_ID}
   whisperd --port ${PORT}
 ```
 
-`--init` matters until you add your own tini: as PID 1, whisperd's SIGTERM
-handler still works, but `podman stop` semantics are cleaner with init; the
-handler itself is required (the kernel won't kill PID 1 with SIG_DFL SIGTERM).
+What makes `podman stop` graceful is whisperd's installed SIGTERM handler: the
+kernel never kills PID 1 with a default-disposition signal, so without a
+handler the stop signal is simply ignored and podman burns the whole `-t`
+timeout before SIGKILLing. `--init` (or your own tini) only adds cleaner
+signal/proxy semantics on top — it is not what makes shutdown work.
 
 ## Standalone
 
