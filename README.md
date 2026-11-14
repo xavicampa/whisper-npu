@@ -9,6 +9,25 @@ This repo is the **server half** of a push-to-talk dictation setup; the client
 overlay) lives in the [dotfiles](https://github.com/xavicampa/dotfiles) under
 `.config/nixos/homepc/dictation` and just POSTs wav segments here.
 
+## Requirements
+
+- **Intel NPU, on Linux.** The image carries the userspace stack (OpenVINO
+  runtime + NPU plugin + level-zero compiler) but not the driver: the host
+  must have Intel's NPU kernel driver + firmware exposing `/dev/accel/accel0`
+  (homepc: the `intel-npu-driver` overlay pin in dotfiles). Containers pass
+  the device through (`--device /dev/accel/accel0`).
+- **Host driver and image compiler in the same version** (currently 1.38.0):
+  host and container share `npu-cache`, which keys on the compiler, not on
+  OpenVINO. Drift doesn't fail — it silently invalidates the cache and every
+  request pays the ~70 s recompile (see Container image below).
+- **Python ≥ 3.11** for the standalone path — which needs the host NPU
+  driver too; only the container path keeps the NPU stack out of your host
+  Python. (`RLIMIT_MEMLOCK` is raised by whisperd itself; the default hard
+  limit on Linux is fine.)
+- **Network on first run** to pull the export from Hugging Face
+  (`~/.cache/huggingface/hub`); after that, warm-cache loads are ~10 s and
+  offline.
+
 ## Serving contract
 
 ```
