@@ -25,7 +25,7 @@ jobs:
       - name: Derive version from Containerfile base
         id: ov
         run: |
-          ov=$(grep -m1 '^FROM docker.io/openvino/ubuntu24_runtime:' Containerfile | cut -d: -f3)
+          ov=$(grep -m1 '^FROM docker.io/openvino/ubuntu24_runtime:' Containerfile | cut -d: -f2)
           [ -n "$ov" ] || { echo "no openvino/ubuntu24_runtime base tag in Containerfile" >&2; exit 1; }
           series=${ov%.*}
           grep -q "openvino-genai==$series\.\*" pyproject.toml \
