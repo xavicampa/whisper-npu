@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whisper-npu"
+version = "0.1.0"
+description = "Whisper (OpenVINO GenAI) on the Intel NPU, served by whisperd as an OpenAI-compatible llama-swap backend"
+requires-python = ">=3.11"
+# The openvino-genai pin MUST stay in the same series as the Containerfile's
+# openvino/ubuntu24_runtime base (the NPU plugin/compiler ship in the base;
+# the workflow enforces it). Bump both together.
+dependencies = [
+  "numpy",
+  "huggingface_hub",
+  "openvino-genai==2026.4.*",
+]
+
+[project.scripts]
+whisperd = "whisper_npu.whisperd:main"
+
+[tool.setuptools.packages.find]
+include = ["whisper_npu*"]

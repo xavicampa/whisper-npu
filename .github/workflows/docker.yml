@@ -1,0 +1,59 @@
+name: docker
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/xavicampa/whisper-npu
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Image tag = the OpenVINO base version (the compiler-in-base pin that
+      # keeps the host's npu-cache warm is the whole point of the image); the
+      # git tag is just the trigger. pyproject's openvino-genai pin must be in
+      # the same series.
+      - name: Derive version from Containerfile base
+        id: ov
+        run: |
+          ov=$(grep -m1 '^FROM docker.io/openvino/ubuntu24_runtime:' Containerfile | cut -d: -f3)
+          [ -n "$ov" ] || { echo "no openvino/ubuntu24_runtime base tag in Containerfile" >&2; exit 1; }
+          series=${ov%.*}
+          grep -q "openvino-genai==$series\.\*" pyproject.toml \
+            || { echo "pyproject openvino-genai pin != $series.* (Containerfile base $ov)" >&2; exit 1; }
+          echo "version=$ov" >> "$GITHUB_OUTPUT"
+          echo "Image will be tagged $ov"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=${{ steps.ov.outputs.version }}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
